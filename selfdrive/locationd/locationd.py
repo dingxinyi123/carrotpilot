@@ -259,6 +259,9 @@ def main():
   DEBUG = bool(int(os.getenv("DEBUG", "0")))
   SIMULATION = bool(int(os.getenv("SIMULATION", "0")))
 
+  from openpilot.system.hardware import PC
+  NO_IMU = PC or os.getenv("NO_IMU") is not None
+
   pm = messaging.PubMaster(['livePose'])
   sm = messaging.SubMaster(['carState', 'liveCalibration', 'cameraOdometry'], poll='cameraOdometry')
   # separate sensor sockets for efficiency
@@ -317,12 +320,12 @@ def main():
           elif res == HandleLogResult.SUCCESS:
             observation_input_invalid[which] *= input_invalid_decay[which]
     else:
-      filter_initialized = sm.all_checks() and sensor_all_checks(acc_msgs, gyro_msgs, sensor_valid, sensor_recv_time, sensor_alive, SIMULATION)
+      filter_initialized = sm.all_checks() and (NO_IMU or sensor_all_checks(acc_msgs, gyro_msgs, sensor_valid, sensor_recv_time, sensor_alive, SIMULATION))
 
     if sm.updated["cameraOdometry"]:
       critical_service_inputs_valid = all(observation_input_invalid[s] < input_invalid_threshold[s] for s in critcal_services)
       inputs_valid = sm.all_valid() and critical_service_inputs_valid
-      sensors_valid = sensor_all_checks(acc_msgs, gyro_msgs, sensor_valid, sensor_recv_time, sensor_alive, SIMULATION)
+      sensors_valid = NO_IMU or sensor_all_checks(acc_msgs, gyro_msgs, sensor_valid, sensor_recv_time, sensor_alive, SIMULATION)
 
       msg = estimator.get_msg(sensors_valid, inputs_valid, filter_initialized)
       pm.send("livePose", msg)

@@ -60,6 +60,8 @@ class CarState(CarStateBase):
 
     if self.CP.flags & VolkswagenFlags.PQ:
       return self.update_pq(pt_cp, cam_cp, ext_cp)
+    elif self.CP.flags & VolkswagenFlags.MLB:
+      return self.update_mlb(pt_cp, cam_cp)
 
     ret = structs.CarState()
 
@@ -150,6 +152,67 @@ class CarState(CarStateBase):
     self.eps_stock_values = pt_cp.vl["LH_EPS_03"]
     self.ldw_stock_values = cam_cp.vl["LDW_02"] if self.CP.networkLocation == NetworkLocation.fwdCamera else {}
     self.gra_stock_values = pt_cp.vl["GRA_ACC_01"]
+
+    ret.buttonEvents = self.create_button_events(pt_cp, self.CCP.BUTTONS)
+
+    self.frame += 1
+    return ret
+
+  def update_mlb(self, pt_cp, cam_cp) -> structs.CarState:
+    ret = structs.CarState()
+
+    ret.wheelSpeeds = self.get_wheel_speeds(
+      pt_cp.vl["ESP_03"]["ESP_VL_Radgeschw"],
+      pt_cp.vl["ESP_03"]["ESP_VR_Radgeschw"],
+      pt_cp.vl["ESP_03"]["ESP_HL_Radgeschw"],
+      pt_cp.vl["ESP_03"]["ESP_HR_Radgeschw"],
+    )
+    ret.vEgoRaw = float(np.mean([ret.wheelSpeeds.fl, ret.wheelSpeeds.fr, ret.wheelSpeeds.rl, ret.wheelSpeeds.rr]))
+    ret.vEgo, ret.aEgo = self.update_speed_kf(ret.vEgoRaw)
+    ret.standstill = ret.vEgoRaw == 0
+
+    ret.steeringAngleDeg = pt_cp.vl["LWI_01"]["LWI_Lenkradwinkel"] * (1, -1)[int(pt_cp.vl["LWI_01"]["LWI_VZ_Lenkradwinkel"])]
+    ret.steeringRateDeg = pt_cp.vl["LWI_01"]["LWI_Lenkradw_Geschw"] * (1, -1)[int(pt_cp.vl["LWI_01"]["LWI_VZ_Lenkradw_Geschw"])]
+    ret.steeringTorque = pt_cp.vl["LH_EPS_03"]["EPS_Lenkmoment"] * (1, -1)[int(pt_cp.vl["LH_EPS_03"]["EPS_VZ_Lenkmoment"])]
+    ret.steeringPressed = abs(ret.steeringTorque) > self.CCP.STEER_DRIVER_ALLOWANCE
+
+    # Q5 MK1 EPS reports DISABLED without factory lane assist; override to allow HCA commands
+    hca_status = self.CCP.hca_status_values.get(pt_cp.vl["LH_EPS_03"]["EPS_HCA_Status"])
+    if hca_status in ("FAULT", "DISABLED"):
+      hca_status = "READY"
+    ret.steerFaultTemporary, ret.steerFaultPermanent = self.update_hca_state(hca_status)
+
+    ret.gasPressed = pt_cp.vl["Motor_03"]["MO_Fahrpedalrohwert_01"] > 0
+    ret.brake = pt_cp.vl["ESP_05"]["ESP_Bremsdruck"] / 250.0
+    brake_pedal_pressed = bool(pt_cp.vl["Motor_03"]["MO_BLS"])
+    brake_pressure_detected = bool(pt_cp.vl["ESP_05"]["ESP_Fahrer_bremst"])
+    ret.brakePressed = brake_pedal_pressed or brake_pressure_detected
+
+    ret.espDisabled = pt_cp.vl["ESP_01"]["ESP_Tastung_passiv"] != 0
+    ret.gearShifter = GearShifter.drive  # gear signal not identified for MLB
+
+    # Blinkmodi_01 is event-only (freq=0) and Python CANParser treats freq=0 as 1Hz,
+    # causing permanent CAN_INVALID. Hardcode to False for now.
+    ret.leftBlinker = False
+    ret.rightBlinker = False
+
+    ret.seatbeltUnlatched = pt_cp.vl["Airbag_02"]["AB_Gurtschloss_FA"] != 3
+
+    # BSM disabled: SWA_01 is event-only (freq=0), same Python parser bug
+    ret.leftBlindspot = False
+    ret.rightBlindspot = False
+
+    # Q5 MK1 has no factory ACC; hardcode cruise availability for LKAS-only operation
+    ret.cruiseState.available = True
+    ret.cruiseState.enabled = True
+    ret.cruiseState.speed = 30
+    ret.accFaulted = False
+    ret.cruiseState.standstill = False
+    self.acc_type = 0
+
+    self.eps_stock_values = pt_cp.vl["LH_EPS_03"]
+    self.ldw_stock_values = {}
+    self.gra_stock_values = pt_cp.vl["LS_01"]
 
     ret.buttonEvents = self.create_button_events(pt_cp, self.CCP.BUTTONS)
 
@@ -267,6 +330,8 @@ class CarState(CarStateBase):
   def get_can_parsers(CP):
     if CP.flags & VolkswagenFlags.PQ:
       return CarState.get_can_parsers_pq(CP)
+    elif CP.flags & VolkswagenFlags.MLB:
+      return CarState.get_can_parsers_mlb(CP)
 
     # another case of the 1-50Hz
     pt_messages = [
@@ -316,6 +381,26 @@ class CarState(CarStateBase):
     return {
       Bus.pt: CANParser(DBC[CP.carFingerprint][Bus.pt], pt_messages, CANBUS.pt),
       Bus.cam: CANParser(DBC[CP.carFingerprint][Bus.pt], cam_messages, CANBUS.cam),
+    }
+
+  @staticmethod
+  def get_can_parsers_mlb(CP):
+    pt_messages = [
+      ("LWI_01", 100),      # From J500 Steering Assist with integrated sensors
+      ("LH_EPS_03", 100),   # From J500 Steering Assist with integrated sensors
+      ("ESP_03", 100),      # From J104 ABS/ESP controller - wheel speeds
+      ("ESP_05", 50),       # From J104 ABS/ESP controller - brake pressure
+      ("ESP_01", 50),       # From J104 ABS/ESP controller - ESP state
+      ("Motor_03", 50),     # From J623 Engine control module - gas/brake switch
+      ("LS_01", 33),        # From J534 steering stalk - cruise control buttons
+      ("Airbag_02", 5),     # From J234 Airbag control module
+      # Blinkmodi_01 and SWA_01 are event-only (freq=0) but Python CANParser
+      # treats freq=0 as 1Hz, causing permanent CAN_INVALID. Removed.
+    ]
+
+    return {
+      Bus.pt: CANParser(DBC[CP.carFingerprint][Bus.pt], pt_messages, CANBUS.pt),
+      Bus.cam: CANParser(DBC[CP.carFingerprint][Bus.pt], [], CANBUS.cam),
     }
 
   @staticmethod

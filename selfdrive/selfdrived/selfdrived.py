@@ -22,7 +22,7 @@ from openpilot.selfdrive.selfdrived.state import StateMachine
 from openpilot.selfdrive.selfdrived.alertmanager import AlertManager, set_offroad_alert
 from openpilot.selfdrive.controls.lib.latcontrol import MIN_LATERAL_CONTROL_SPEED
 
-from openpilot.system.hardware import HARDWARE
+from openpilot.system.hardware import HARDWARE, PC
 from openpilot.system.version import get_build_metadata
 
 REPLAY = "REPLAY" in os.environ
@@ -69,6 +69,7 @@ class SelfdriveD:
     self.sensor_packets = ["accelerometer", "gyroscope"]
     self.camera_packets = ["roadCameraState", "driverCameraState", "wideRoadCameraState"]
 
+    self.sensor_packets = [] if PC else ["accelerometer", "gyroscope"]
     self.disable_dm = self.params.get_int("DisableDM")
 
     # TODO: de-couple selfdrived with card/conflate on carState without introducing controls mismatches
@@ -77,6 +78,9 @@ class SelfdriveD:
     ignore = self.sensor_packets + self.gps_packets + ['alertDebug']
     if SIMULATION:
       ignore += ['driverCameraState', 'managerState']
+    elif PC:
+      self.camera_packets.remove("driverCameraState")
+      self.camera_packets.remove("wideRoadCameraState")
     elif self.disable_dm > 0:
       self.camera_packets.remove("driverCameraState")
     ignore += ['driverMonitoringState']
@@ -357,7 +361,7 @@ class SelfdriveD:
         self.events.add(EventName.paramsdTemporaryError)
 
     # conservative HW alert. if the data or frequency are off, locationd will throw an error
-    if any((self.sm.frame - self.sm.recv_frame[s])*DT_CTRL > 10. for s in self.sensor_packets):
+    if self.sensor_packets and any((self.sm.frame - self.sm.recv_frame[s])*DT_CTRL > 10. for s in self.sensor_packets):
       self.events.add(EventName.sensorDataInvalid)
 
     if not REPLAY:

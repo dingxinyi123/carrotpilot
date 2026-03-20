@@ -51,6 +51,8 @@ _os_fisheye = CameraConfig(2688 // 2, 1520 // 2, 567.0 / 4 * 3)
 _ar_ox_config = DeviceCameraConfig(CameraConfig(1928, 1208, 2648.0), _ar_ox_fisheye, _ar_ox_fisheye)
 _os_config = DeviceCameraConfig(CameraConfig(2688 // 2, 1520 // 2, 1522.0 * 3 / 4), _os_fisheye, _os_fisheye)
 _neo_config = DeviceCameraConfig(CameraConfig(1164, 874, 910.0), CameraConfig(816, 612, 650.0), _NoneCameraConfig())
+# 8mm webcam lens, 1920x1080, FOV~45deg: focal = sqrt(1920^2+1080^2)/2 / tan(22.5deg) ≈ 2659px
+_webcam_config = DeviceCameraConfig(CameraConfig(1920, 1080, 2659.0), _NoneCameraConfig(), _NoneCameraConfig())
 
 DEVICE_CAMERAS = {
   # A "device camera" is defined by a device type and sensor
@@ -64,8 +66,8 @@ DEVICE_CAMERAS = {
   ("unknown", "ar0231"): _ar_ox_config,
   ("unknown", "ox03c10"): _ar_ox_config,
 
-  # simulator (emulates a tici)
-  ("pc", "unknown"): _ar_ox_config,
+  # PC webcam (8mm lens, 1920x1080)
+  ("pc", "unknown"): _webcam_config,
 }
 prods = itertools.product(('tici', 'tizi', 'mici'), (('ar0231', _ar_ox_config), ('ox03c10', _ar_ox_config), ('os04c10', _os_config)))
 DEVICE_CAMERAS.update({(d, c[0]): c[1] for d, c in prods})

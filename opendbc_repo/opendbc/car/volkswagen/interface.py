@@ -37,6 +37,18 @@ class CarInterface(CarInterfaceBase):
       # Panda ALLOW_DEBUG firmware required.
       ret.dashcamOnly = True
 
+    elif ret.flags & VolkswagenFlags.MLB:
+      # Set global MLB parameters (Audi Q5 MK1 etc.)
+      # carrotpilot panda firmware lacks volkswagenMlb safety model → falls back to SILENT → blocks all TX
+      # Use allOutput instead (no ACC, HCA-only, acceptable risk)
+      ret.safetyConfigs = [get_safety_config(structs.CarParams.SafetyModel.allOutput)]
+      ret.enableBsm = False  # SWA_01 is freq=0, Python CANParser bug causes CAN_INVALID
+      ret.transmissionType = TransmissionType.automatic
+      if any(msg in fingerprint[1] for msg in (0x40, 0x86, 0x103)):  # Airbag_01, LWI_01, ESP_03
+        ret.networkLocation = NetworkLocation.gateway
+      else:
+        ret.networkLocation = NetworkLocation.fwdCamera
+
     else:
       # Set global MQB parameters
       ret.safetyConfigs = [get_safety_config(structs.CarParams.SafetyModel.volkswagen)]
@@ -60,7 +72,7 @@ class CarInterface(CarInterfaceBase):
     # Global lateral tuning defaults, can be overridden per-vehicle
 
     ret.steerLimitTimer = 0.4
-    if ret.flags & VolkswagenFlags.PQ:
+    if ret.flags & VolkswagenFlags.PQ or ret.flags & VolkswagenFlags.MLB:
       ret.steerActuatorDelay = 0.2
       CarInterfaceBase.configure_torque_tune(candidate, ret.lateralTuning)
     else:

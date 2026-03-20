@@ -67,6 +67,10 @@ dependencies = [
 
   # logreader
   "zstandard",
+
+  # PC webcam / file attributes
+  "opencv-python-headless",
+  "xattr",
 ]
 
 [project.optional-dependencies]

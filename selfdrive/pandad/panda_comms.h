@@ -13,7 +13,7 @@
 #include <libusb-1.0/libusb.h>
 
 
-#define TIMEOUT 0
+#define TIMEOUT 1000
 #define SPI_BUF_SIZE 2048
 
 

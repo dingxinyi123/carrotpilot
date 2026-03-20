@@ -72,6 +72,36 @@ class CarControllerParams:
         "laneAssistDeactivTrailer": 5,  # "Lane Assist: no function with trailer"
       }
 
+    elif CP.flags & VolkswagenFlags.MLB:
+      self.LDW_STEP = 10                  # LDW_02 message frequency 10Hz
+      self.ACC_HUD_STEP = 6               # ACC_02 message frequency 16Hz
+      self.STEER_DRIVER_ALLOWANCE = 80    # Driver intervention threshold 0.8 Nm
+      self.STEER_DELTA_UP = 10            # Max HCA reached in 0.60s (STEER_MAX / (50Hz * 0.60))
+      self.STEER_DELTA_DOWN = 10          # Min HCA reached in 0.60s (STEER_MAX / (50Hz * 0.60))
+
+      self.hca_status_values = can_define.dv["LH_EPS_03"]["EPS_HCA_Status"]
+
+      self.BUTTONS = [
+        Button(structs.CarState.ButtonEvent.Type.setCruise, "LS_01", "LS_Tip_Setzen", [1]),
+        Button(structs.CarState.ButtonEvent.Type.resumeCruise, "LS_01", "LS_Tip_Wiederaufnahme", [1]),
+        Button(structs.CarState.ButtonEvent.Type.accelCruise, "LS_01", "LS_Tip_Hoch", [1]),
+        Button(structs.CarState.ButtonEvent.Type.decelCruise, "LS_01", "LS_Tip_Runter", [1]),
+        Button(structs.CarState.ButtonEvent.Type.cancel, "LS_01", "LS_Abbrechen", [1]),
+        Button(structs.CarState.ButtonEvent.Type.gapAdjustCruise, "LS_01", "LS_Verstellung_Zeitluecke", [1]),
+      ]
+
+      self.LDW_MESSAGES = {
+        "none": 0,
+        "laneAssistUnavailChime": 1,
+        "laneAssistUnavailNoSensorChime": 3,
+        "laneAssistTakeOverUrgent": 4,
+        "emergencyAssistUrgent": 6,
+        "laneAssistTakeOverChime": 7,
+        "laneAssistTakeOver": 8,
+        "emergencyAssistChangingLanes": 9,
+        "laneAssistDeactivated": 10,
+      }
+
     else:
       self.LDW_STEP = 10                  # LDW_02 message frequency 10Hz
       self.ACC_HUD_STEP = 6               # ACC_02 message frequency 16Hz
@@ -143,6 +173,7 @@ class VolkswagenFlags(IntFlag):
 
   # Static flags
   PQ = 2
+  MLB = 2 ** 5
 
 
 @dataclass
@@ -160,6 +191,14 @@ class VolkswagenPQPlatformConfig(VolkswagenMQBPlatformConfig):
 
   def init(self):
     self.flags |= VolkswagenFlags.PQ
+
+
+@dataclass
+class VolkswagenMLBPlatformConfig(VolkswagenMQBPlatformConfig):
+  dbc_dict: DbcDict = field(default_factory=lambda: {Bus.pt: 'vw_mlb'})
+
+  def init(self):
+    self.flags |= VolkswagenFlags.MLB
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -212,7 +251,7 @@ class VWCarDocs(CarDocs):
 # FW_VERSIONS for that existing CAR.
 
 class CAR(Platforms):
-  config: VolkswagenMQBPlatformConfig | VolkswagenPQPlatformConfig
+  config: VolkswagenMQBPlatformConfig | VolkswagenPQPlatformConfig | VolkswagenMLBPlatformConfig
 
   VOLKSWAGEN_ARTEON_MK1 = VolkswagenMQBPlatformConfig(
     [
@@ -386,6 +425,12 @@ class CAR(Platforms):
     [VWCarDocs("Audi Q3 2019-23")],
     VolkswagenCarSpecs(mass=1623, wheelbase=2.68),
     chassis_codes={"8U", "F3", "FS"},
+    wmis={WMI.AUDI_EUROPE_MPV, WMI.AUDI_GERMANY_CAR},
+  )
+  AUDI_Q5_MK1 = VolkswagenMLBPlatformConfig(
+    [VWCarDocs("Audi Q5 2008-2017")],
+    VolkswagenCarSpecs(mass=1850, wheelbase=2.81),
+    chassis_codes={"8R"},
     wmis={WMI.AUDI_EUROPE_MPV, WMI.AUDI_GERMANY_CAR},
   )
   SEAT_ATECA_MK1 = VolkswagenMQBPlatformConfig(

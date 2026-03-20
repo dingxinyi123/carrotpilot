@@ -169,7 +169,7 @@ int PandaUsbHandle::control_read(uint8_t bRequest, uint16_t wValue, uint16_t wIn
   do {
     err = libusb_control_transfer(dev_handle, bmRequestType, bRequest, wValue, wIndex, data, wLength, timeout);
     if (err < 0) handle_usb_issue(err, __func__);
-  } while (err < 0 && connected);
+  } while (err < 0 && connected && err != LIBUSB_ERROR_TIMEOUT && err != LIBUSB_ERROR_OVERFLOW);
 
   return err;
 }
@@ -217,6 +217,7 @@ int PandaUsbHandle::bulk_read(unsigned char endpoint, unsigned char* data, int l
     } else if (err == LIBUSB_ERROR_OVERFLOW) {
       comms_healthy = false;
       LOGE_100("overflow got 0x%x", transferred);
+      break;
     } else if (err != 0) {
       handle_usb_issue(err, __func__);
     }
